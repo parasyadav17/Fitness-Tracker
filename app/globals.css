@@ -1,0 +1,102 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 60 49% 88%; /* beige */
+    --foreground: 206 100% 15%; /* darker polynesian-blue */
+
+    --card: 60 49% 92%; /* lighter beige */
+    --card-foreground: 206 100% 15%; /* darker polynesian-blue */
+
+    --popover: 60 49% 92%; /* lighter beige */
+    --popover-foreground: 206 100% 15%; /* darker polynesian-blue */
+
+    --primary: 206 100% 27%; /* polynesian-blue */
+    --primary-foreground: 60 49% 88%; /* beige */
+
+    --secondary: 16 100% 60%; /* orange-crayola */
+    --secondary-foreground: 60 49% 98%; /* lighter beige */
+
+    --muted: 26 85% 80%; /* peach */
+    --muted-foreground: 206 72% 25%; /* darker lapis-lazuli */
+
+    --accent: 26 85% 80%; /* peach */
+    --accent-foreground: 206 100% 27%; /* polynesian-blue */
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 60 49% 98%; /* lighter beige */
+
+    --border: 206 30% 85%; /* light blue-gray */
+    --input: 206 30% 85%; /* light blue-gray */
+    --ring: 206 100% 27%; /* polynesian-blue */
+
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 206 100% 10%; /* very dark polynesian-blue */
+    --foreground: 60 49% 88%; /* beige */
+
+    --card: 206 100% 15%; /* dark polynesian-blue */
+    --card-foreground: 60 49% 88%; /* beige */
+
+    --popover: 206 100% 15%; /* dark polynesian-blue */
+    --popover-foreground: 60 49% 88%; /* beige */
+
+    --primary: 206 72% 36%; /* lapis-lazuli */
+    --primary-foreground: 60 49% 88%; /* beige */
+
+    --secondary: 16 100% 60%; /* orange-crayola */
+    --secondary-foreground: 60 49% 98%; /* lighter beige */
+
+    --muted: 206 30% 25%; /* dark muted blue */
+    --muted-foreground: 26 45% 80%; /* lighter peach */
+
+    --accent: 206 30% 25%; /* dark muted blue */
+    --accent-foreground: 26 85% 80%; /* peach */
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 60 49% 98%; /* lighter beige */
+
+    --border: 206 30% 30%; /* dark blue-gray */
+    --input: 206 30% 30%; /* dark blue-gray */
+    --ring: 16 100% 60%; /* orange-crayola */
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Custom chart colors */
+:root {
+  --chart-1: 206 100% 27%; /* polynesian-blue */
+  --chart-2: 16 100% 60%; /* orange-crayola */
+  --chart-3: 26 85% 80%; /* peach */
+  --chart-4: 206 72% 36%; /* lapis-lazuli */
+  --chart-5: 60 49% 70%; /* darker beige */
+}
+
+.dark {
+  --chart-1: 206 72% 36%; /* lapis-lazuli */
+  --chart-2: 16 100% 60%; /* orange-crayola */
+  --chart-3: 26 85% 80%; /* peach */
+  --chart-4: 206 100% 40%; /* lighter polynesian-blue */
+  --chart-5: 60 30% 60%; /* darker beige */
+}
+
+/* Custom color classes for specific components */
+.bg-primary-gradient {
+  background: linear-gradient(135deg, hsl(var(--primary)), hsl(206, 72%, 36%));
+}
+
+.bg-secondary-gradient {
+  background: linear-gradient(135deg, hsl(var(--secondary)), hsl(26, 85%, 80%));
+}
