@@ -152,7 +152,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                           <User className="h-4 w-4 text-accent-foreground" />
                         </div>
                         <div className="text-xs">
-                          <div className="font-medium">Alex Johnson</div>
+                          <div className="font-medium">User@17</div>
                           <div className="text-muted-foreground">Athlete</div>
                         </div>
                       </div>
