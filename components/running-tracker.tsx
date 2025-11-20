@@ -8,13 +8,21 @@ import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
+import { MapContainer, TileLayer, Polyline, CircleMarker } from "react-leaflet"
+import "leaflet/dist/leaflet.css"
+
 export function RunningTracker() {
   const [isTracking, setIsTracking] = useState(false)
   const [elapsedTime, setElapsedTime] = useState(0)
-  const [distance, setDistance] = useState(0)
+  const [distance, setDistance] = useState(0) // km
   const [pace, setPace] = useState("0:00")
   const [calories, setCalories] = useState(0)
-  const [startTime, setStartTime] = useState(null)
+
+  const [currentPosition, setCurrentPosition] = useState(null) // { lat, lng }
+  const [path, setPath] = useState([]) // [{ lat, lng }, ...]
+  const [watchId, setWatchId] = useState(null)
+  const [geoError, setGeoError] = useState<string | null>(null)
+
   const [pastRuns, setPastRuns] = useState([
     {
       date: "2024-04-25",
@@ -42,49 +50,141 @@ export function RunningTracker() {
     },
   ])
 
-  // Simulate GPS tracking
+  const defaultCenter = { lat: 18.5204, lng: 73.8567 } // fallback (Pune, can change)
+
+  // --- Helpers: distance + formatting ---
+
+  const toRad = (value: number) => (value * Math.PI) / 180
+
+  // Haversine formula (returns km)
+  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const R = 6371 // km
+    const dLat = toRad(lat2 - lat1)
+    const dLon = toRad(lon2 - lon1)
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2)
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+    return R * c
+  }
+
+  const formatTime = (seconds: number) => {
+    const hours = Math.floor(seconds / 3600)
+    const minutes = Math.floor((seconds % 3600) / 60)
+    const secs = seconds % 60
+
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
+    }
+    return `${minutes}:${secs.toString().padStart(2, "0")}`
+  }
+
+  // --- Timer: track elapsed time while tracking ---
+
   useEffect(() => {
-    let interval
+    let interval: number | undefined
 
     if (isTracking) {
-      interval = setInterval(() => {
+      interval = window.setInterval(() => {
         setElapsedTime((prev) => prev + 1)
-
-        // Simulate distance increase (random pace between 4-6 min/km)
-        const paceVariation = 4 + Math.random() * 2
-        const distanceIncrement = 1 / (paceVariation * 60)
-
-        setDistance((prev) => {
-          const newDistance = prev + distanceIncrement
-
-          // Calculate pace (min:sec per km)
-          const paceInSeconds = elapsedTime / newDistance
-          const paceMinutes = Math.floor(paceInSeconds / 60)
-          const paceSeconds = Math.floor(paceInSeconds % 60)
-          setPace(`${paceMinutes}:${paceSeconds.toString().padStart(2, "0")}`)
-
-          // Calculate calories (rough estimate: ~70 calories per km for a 70kg person)
-          setCalories(Math.round(newDistance * 70))
-
-          return newDistance
-        })
       }, 1000)
     }
 
-    return () => clearInterval(interval)
-  }, [isTracking, elapsedTime])
+    return () => {
+      if (interval) window.clearInterval(interval)
+    }
+  }, [isTracking])
+
+  // --- Recalculate pace & calories when time or distance changes ---
+
+  useEffect(() => {
+    if (distance > 0 && elapsedTime > 0) {
+      const paceInSeconds = elapsedTime / distance
+      const paceMinutes = Math.floor(paceInSeconds / 60)
+      const paceSeconds = Math.floor(paceInSeconds % 60)
+      setPace(`${paceMinutes}:${paceSeconds.toString().padStart(2, "0")}`)
+
+      // rough estimate: ~70 calories per km
+      setCalories(Math.round(distance * 70))
+    }
+  }, [elapsedTime, distance])
+
+  // --- Clean up geolocation watch on unmount ---
+
+  useEffect(() => {
+    return () => {
+      if (watchId !== null && typeof navigator !== "undefined" && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchId)
+      }
+    }
+  }, [watchId])
+
+  // --- Start & Stop tracking ---
 
   const startTracking = () => {
-    setIsTracking(true)
-    setStartTime(new Date())
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setGeoError("Geolocation is not supported by your browser.")
+      return
+    }
+
+    setGeoError(null)
     setElapsedTime(0)
     setDistance(0)
     setPace("0:00")
     setCalories(0)
+    setPath([])
+    setCurrentPosition(null)
+
+    const id = navigator.geolocation.watchPosition(
+      (position) => {
+        const newPoint = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        }
+
+        setCurrentPosition(newPoint)
+
+        setPath((prevPath: any[]) => {
+          if (prevPath.length === 0) {
+            return [newPoint]
+          }
+
+          const lastPoint = prevPath[prevPath.length - 1]
+          const segmentDistance = calculateDistance(
+            lastPoint.lat,
+            lastPoint.lng,
+            newPoint.lat,
+            newPoint.lng,
+          )
+
+          // increment distance in km
+          setDistance((prevDistance) => prevDistance + segmentDistance)
+
+          return [...prevPath, newPoint]
+        })
+      },
+      (error) => {
+        setGeoError(error.message || "Unable to get your location.")
+        setIsTracking(false)
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 1000,
+        timeout: 10000,
+      },
+    )
+
+    setWatchId(id)
+    setIsTracking(true)
   }
 
   const stopTracking = () => {
     setIsTracking(false)
+
+    if (watchId !== null && typeof navigator !== "undefined" && navigator.geolocation) {
+      navigator.geolocation.clearWatch(watchId)
+      setWatchId(null)
+    }
 
     // Only save if we have some meaningful distance
     if (distance > 0.1) {
@@ -97,20 +197,8 @@ export function RunningTracker() {
         route: "Quick Run",
       }
 
-      setPastRuns([newRun, ...pastRuns])
+      setPastRuns((prev) => [newRun, ...prev])
     }
-  }
-
-  // Format time as MM:SS or HH:MM:SS
-  const formatTime = (seconds) => {
-    const hours = Math.floor(seconds / 3600)
-    const minutes = Math.floor((seconds % 3600) / 60)
-    const secs = seconds % 60
-
-    if (hours > 0) {
-      return `${hours}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
-    }
-    return `${minutes}:${secs.toString().padStart(2, "0")}`
   }
 
   return (
@@ -118,37 +206,52 @@ export function RunningTracker() {
       <Card className="md:col-span-2 border-polynesian-blue/20 dark:border-lapis-lazuli/20">
         <CardHeader className="bg-gradient-to-r from-polynesian-blue/10 to-lapis-lazuli/5 dark:from-lapis-lazuli/10 dark:to-polynesian-blue/5 rounded-t-lg">
           <CardTitle className="text-polynesian-blue dark:text-beige">Running Tracker</CardTitle>
-          <CardDescription>Track your runs with GPS for distance and pace</CardDescription>
+          <CardDescription>Track your runs with real GPS distance, pace & route</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 pt-6">
+          {/* Metrics */}
           <div className="grid gap-4 md:grid-cols-4">
             <Card className="bg-gradient-to-br from-background to-muted/30">
               <CardHeader className="p-4">
-                <CardTitle className="text-sm font-medium text-polynesian-blue dark:text-beige">Distance</CardTitle>
+                <CardTitle className="text-sm font-medium text-polynesian-blue dark:text-beige">
+                  Distance
+                </CardTitle>
               </CardHeader>
               <CardContent className="p-4 pt-0">
-                <div className="text-2xl font-bold text-polynesian-blue dark:text-beige">{distance.toFixed(2)} km</div>
+                <div className="text-2xl font-bold text-polynesian-blue dark:text-beige">
+                  {distance.toFixed(2)} km
+                </div>
               </CardContent>
             </Card>
             <Card className="bg-gradient-to-br from-background to-muted/30">
               <CardHeader className="p-4">
-                <CardTitle className="text-sm font-medium text-polynesian-blue dark:text-beige">Time</CardTitle>
+                <CardTitle className="text-sm font-medium text-polynesian-blue dark:text-beige">
+                  Time
+                </CardTitle>
               </CardHeader>
               <CardContent className="p-4 pt-0">
-                <div className="text-2xl font-bold text-polynesian-blue dark:text-beige">{formatTime(elapsedTime)}</div>
+                <div className="text-2xl font-bold text-polynesian-blue dark:text-beige">
+                  {formatTime(elapsedTime)}
+                </div>
               </CardContent>
             </Card>
             <Card className="bg-gradient-to-br from-background to-muted/30">
               <CardHeader className="p-4">
-                <CardTitle className="text-sm font-medium text-polynesian-blue dark:text-beige">Pace</CardTitle>
+                <CardTitle className="text-sm font-medium text-polynesian-blue dark:text-beige">
+                  Pace
+                </CardTitle>
               </CardHeader>
               <CardContent className="p-4 pt-0">
-                <div className="text-2xl font-bold text-polynesian-blue dark:text-beige">{pace} /km</div>
+                <div className="text-2xl font-bold text-polynesian-blue dark:text-beige">
+                  {pace} /km
+                </div>
               </CardContent>
             </Card>
             <Card className="bg-gradient-to-br from-background to-muted/30">
               <CardHeader className="p-4">
-                <CardTitle className="text-sm font-medium text-orange-crayola">Calories</CardTitle>
+                <CardTitle className="text-sm font-medium text-orange-crayola">
+                  Calories
+                </CardTitle>
               </CardHeader>
               <CardContent className="p-4 pt-0">
                 <div className="text-2xl font-bold text-orange-crayola">{calories}</div>
@@ -156,27 +259,64 @@ export function RunningTracker() {
             </Card>
           </div>
 
+          {/* Real map view */}
           <div className="rounded-lg border border-muted p-4">
             <div className="aspect-video relative bg-muted/50 dark:bg-muted/30 rounded-md overflow-hidden">
-              {/* Simulated map view */}
-              <div className="absolute inset-0 flex items-center justify-center">
-                {isTracking ? (
-                  <div className="text-center">
-                    <Badge
-                      variant="outline"
-                      className="mb-2 bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300 border-green-300 dark:border-green-700"
-                    >
-                      GPS Active
-                    </Badge>
-                    <div className="text-sm text-muted-foreground">Tracking your run...</div>
+              {typeof window !== "undefined" && (
+                <MapContainer
+                  center={currentPosition || defaultCenter}
+                  zoom={15}
+                  className="h-full w-full"
+                  scrollWheelZoom={false}
+                >
+                  <TileLayer
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                  />
+                  {path.length > 0 && (
+                    <>
+                      <Polyline
+                        positions={path}
+                        pathOptions={{ weight: 4 }}
+                      />
+                      {/* Start point */}
+                      <CircleMarker
+                        center={path[0]}
+                        radius={6}
+                      />
+                      {/* Current point */}
+                      <CircleMarker
+                        center={path[path.length - 1]}
+                        radius={6}
+                      />
+                    </>
+                  )}
+                </MapContainer>
+              )}
+
+              {/* Overlays */}
+              {!currentPosition && !geoError && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">
+                  <MapPin className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                  <div className="text-sm text-muted-foreground">
+                    Start tracking and allow location access to see your route
                   </div>
-                ) : (
-                  <div className="text-center">
-                    <MapPin className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-                    <div className="text-sm text-muted-foreground">Start tracking to see your route</div>
-                  </div>
-                )}
-              </div>
+                </div>
+              )}
+
+              {geoError && (
+                <div className="absolute inset-x-2 bottom-2 rounded-md bg-destructive/90 text-destructive-foreground px-3 py-2 text-xs">
+                  {geoError}
+                </div>
+              )}
+
+              {isTracking && (
+                <div className="absolute top-2 left-2">
+                  <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300 border-green-300 dark:border-green-700">
+                    GPS Active
+                  </Badge>
+                </div>
+              )}
             </div>
           </div>
         </CardContent>
@@ -198,6 +338,7 @@ export function RunningTracker() {
         </CardFooter>
       </Card>
 
+      {/* History + Stats (unchanged from your version, just using new formatTime) */}
       <Card className="md:col-span-2 border-peach/30">
         <CardHeader className="bg-gradient-to-r from-peach/20 to-peach/10 rounded-t-lg">
           <CardTitle className="text-polynesian-blue dark:text-beige">Running History</CardTitle>
@@ -242,7 +383,9 @@ export function RunningTracker() {
                     </div>
                     <div className="text-center">
                       <p className="text-sm text-muted-foreground">Time</p>
-                      <p className="font-medium text-polynesian-blue dark:text-beige">{formatTime(run.duration)}</p>
+                      <p className="font-medium text-polynesian-blue dark:text-beige">
+                        {formatTime(run.duration)}
+                      </p>
                     </div>
                     <div className="text-center">
                       <p className="text-sm text-muted-foreground">Pace</p>
@@ -291,7 +434,9 @@ export function RunningTracker() {
                       <div>
                         <div className="flex justify-between">
                           <span className="text-sm">Total Distance</span>
-                          <span className="text-sm font-medium text-polynesian-blue dark:text-beige">42.5 km</span>
+                          <span className="text-sm font-medium text-polynesian-blue dark:text-beige">
+                            42.5 km
+                          </span>
                         </div>
                         <Progress
                           value={70}
@@ -302,7 +447,9 @@ export function RunningTracker() {
                       <div>
                         <div className="flex justify-between">
                           <span className="text-sm">Avg. Pace</span>
-                          <span className="text-sm font-medium text-polynesian-blue dark:text-beige">5:38 /km</span>
+                          <span className="text-sm font-medium text-polynesian-blue dark:text-beige">
+                            5:38 /km
+                          </span>
                         </div>
                         <Progress
                           value={65}
@@ -313,7 +460,9 @@ export function RunningTracker() {
                       <div>
                         <div className="flex justify-between">
                           <span className="text-sm">Longest Run</span>
-                          <span className="text-sm font-medium text-polynesian-blue dark:text-beige">8.1 km</span>
+                          <span className="text-sm font-medium text-polynesian-blue dark:text-beige">
+                            8.1 km
+                          </span>
                         </div>
                         <Progress
                           value={80}
